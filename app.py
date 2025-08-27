@@ -142,7 +142,7 @@ class StatusBox(QFrame):
         layout.addWidget(self.status_label)
 
         self.setLayout(layout)
-        self.setFixedSize(200, 170)
+        self.setFixedSize(250, 200)
 
 
 
@@ -168,12 +168,17 @@ class CenteredInfoBox(QFrame):
         self.info_label = QLabel(text)
         self.info_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         self.info_label.setStyleSheet("font-size: 15px;")
+        self.info_label.setTextFormat(Qt.TextFormat.RichText)
+        self.info_label.setWordWrap(True)
+        self.info_label.setText(text)
         layout.addWidget(self.info_label)
         layout.setContentsMargins(12, 10, 12, 10)
         self.setLayout(layout)
-        self.setFixedSize(500, 100)
+        self.setFixedSize(500, 200)
 
     def set_text(self, text):
+        self.info_label.setTextFormat(Qt.TextFormat.RichText)
+        self.info_label.setWordWrap(True)
         self.info_label.setText(text)
 
 class MainWindow(QMainWindow):
@@ -183,7 +188,7 @@ class MainWindow(QMainWindow):
         self.setMinimumSize(700, 400)
         self.resize(950, 600)
 
-        self.laptop_box = StatusBox("Laptop", "IP: ...", False, "💻")
+        self.desktop_box = StatusBox("desktop", "IP: ...", False, "💻")
         self.router_box = StatusBox("Router", "IP: ...", False, "📶")
         self.internet_box = StatusBox("Internet", "IP: ...", False, "🌐")
 
@@ -196,7 +201,7 @@ class MainWindow(QMainWindow):
 
         boxes_layout = QHBoxLayout()
         boxes_layout.addStretch()
-        boxes_layout.addWidget(self.laptop_box)
+        boxes_layout.addWidget(self.desktop_box)
         boxes_layout.addWidget(connect_icon1)
         boxes_layout.addWidget(self.router_box)
         boxes_layout.addWidget(connect_icon2)
@@ -232,19 +237,19 @@ class MainWindow(QMainWindow):
         local_ip = get_local_ip()
         gateway_ip = get_gateway_ip()
 
-        laptop_status = True if local_ip else False
+        desktop_status = True if local_ip else False
         router_status = ping(gateway_ip) if gateway_ip else False
         internet_status = ping("8.8.8.8") if router_status else False
 
-        self.laptop_box.update(local_ip, laptop_status)
+        self.desktop_box.update(local_ip, desktop_status)
         self.router_box.update(gateway_ip, router_status)
         self.internet_box.update(public_ip, internet_status)
 
         info_lines = []
-        if laptop_status and router_status and internet_status:
+        if desktop_status and router_status and internet_status:
             info_lines.append("✅ Network is working fine.")
-        elif not laptop_status:
-            info_lines.append("❌ Problem with your laptop network adapter or configuration.")
+        elif not desktop_status:
+            info_lines.append("❌ Problem with your desktop network adapter or configuration.")
         elif not router_status:
             info_lines.append("❌ Problem connecting to your router. Check router and cable/wifi.")
         elif not internet_status:
