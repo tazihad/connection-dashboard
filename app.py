@@ -188,7 +188,7 @@ class MainWindow(QMainWindow):
         self.setMinimumSize(700, 400)
         self.resize(950, 600)
 
-        self.desktop_box = StatusBox("desktop", "IP: ...", False, "💻")
+        self.desktop_box = StatusBox("Desktop", "IP: ...", False, "💻")
         self.router_box = StatusBox("Router", "IP: ...", False, "📶")
         self.internet_box = StatusBox("Internet", "IP: ...", False, "🌐")
 
