@@ -64,3 +64,19 @@ display.
 Press the refresh button to probe immediately; otherwise the snapshot refreshes every five
 seconds. The sun/moon-style button switches between light and dark themes (the initial theme
 follows the desktop preference).
+
+## AppImage
+
+Package the release build as a single portable file:
+
+```sh
+packaging/build-appimage.sh
+./target/appimage/connection-dashboard-0.2.0-x86_64.AppImage
+```
+
+The script builds the release binary, assembles an AppDir (binary, icon, desktop entry and
+AppStream metadata) and downloads `appimagetool` on first use. Set `SKIP_BUILD=1` to reuse an
+existing release binary. The image bundles only the application: the graphics stack
+(X11/Wayland libraries and the OpenGL driver) and glibc come from the host, so the image stays
+small (~5 MB) and matches the machine's GPU driver. On systems without FUSE, launch it with
+`--appimage-extract-and-run`.

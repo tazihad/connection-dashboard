@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Connection Dashboard
+GenericName=Network Status
+Comment=See your desktop, router and internet connection at a glance
+Exec=connection-dashboard
+Icon=connection-dashboard
+Terminal=false
+Categories=Network;
+Keywords=network;connection;internet;wifi;ethernet;router;ip;gateway;
+StartupNotify=true
+StartupWMClass=Connection Dashboard

@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.tazihad.connection_dashboard</id>
+  <name>Connection Dashboard</name>
+  <summary>See your desktop, router and internet connection at a glance</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <description>
+    <p>
+      Connection Dashboard shows the state of the three links every networked
+      machine depends on: the desktop itself, the local router and the internet.
+    </p>
+    <p>
+      It reports the local and public IP addresses, the default gateway, and the
+      Ethernet and Wi-Fi adapter states, then explains the first broken link.
+      Probing runs in the background, so the window opens and stays responsive
+      even with no network connection.
+    </p>
+  </description>
+  <launchable type="desktop-id">connection-dashboard.desktop</launchable>
+  <url type="homepage">https://github.com/tazihad/connection-dashboard</url>
+  <developer id="io.github.tazihad">
+    <name>tazihad</name>
+  </developer>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="0.2.0" date="2026-11-19"/>
+  </releases>
+</component>
