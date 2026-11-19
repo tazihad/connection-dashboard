@@ -41,6 +41,7 @@ struct App {
     busy: Arc<AtomicBool>,
     refresh_tx: mpsc::Sender<()>,
     applied_theme: egui::Theme,
+    icon_applied: bool,
 }
 
 impl App {
@@ -66,6 +67,31 @@ impl App {
             busy,
             refresh_tx,
             applied_theme,
+            icon_applied: false,
+        }
+    }
+
+    /// eframe does not forward the viewport icon to winit on Linux, so set the X11
+    /// `_NET_WM_ICON` property once the window exists. Wayland has no per-window icon;
+    /// there the desktop entry installed from the AppImage provides it.
+    fn apply_window_icon(&mut self, frame: &mut eframe::Frame) {
+        if self.icon_applied {
+            return;
+        }
+        let Some(window) = frame.winit_window() else {
+            return;
+        };
+        self.icon_applied = true;
+        if let Some(image) = load_icon_image() {
+            // X11 caps a single property request at 65535 32-bit units, so the full
+            // 512x512 image cannot be sent in one go. A 128x128 icon is ample for
+            // taskbars and window switchers.
+            const EDGE: u32 = 128;
+            let image =
+                image::imageops::resize(&image, EDGE, EDGE, image::imageops::FilterType::Lanczos3);
+            if let Ok(icon) = winit::window::Icon::from_rgba(image.into_raw(), EDGE, EDGE) {
+                window.set_window_icon(Some(icon));
+            }
         }
     }
 
@@ -133,8 +159,9 @@ impl App {
 }
 
 impl eframe::App for App {
-    fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {
+    fn ui(&mut self, ui: &mut Ui, frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
+        self.apply_window_icon(frame);
         let resolved = ctx.theme();
         if resolved != self.applied_theme {
             self.applied_theme = resolved;
@@ -490,19 +517,24 @@ fn icon_button(
         })
 }
 
+fn load_icon_image() -> Option<image::RgbaImage> {
+    Some(
+        image::load_from_memory(include_bytes!("../icon.png"))
+            .ok()?
+            .to_rgba8(),
+    )
+}
+
 fn window_icon() -> egui::IconData {
-    let fallback = egui::IconData {
-        rgba: vec![0, 0, 0, 255],
-        width: 1,
-        height: 1,
-    };
-    let Ok(image) = image::load_from_memory(include_bytes!("../icon.png")) else {
-        return fallback;
-    };
-    let image = image.to_rgba8();
-    egui::IconData {
-        width: image.width(),
-        height: image.height(),
-        rgba: image.into_raw(),
-    }
+    load_icon_image()
+        .map(|image| egui::IconData {
+            width: image.width(),
+            height: image.height(),
+            rgba: image.into_raw(),
+        })
+        .unwrap_or(egui::IconData {
+            rgba: vec![0, 0, 0, 255],
+            width: 1,
+            height: 1,
+        })
 }

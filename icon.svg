@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <!-- GNOME HIG: full-bleed rounded square, subtle not flat -->
+  <rect x="4" y="4" width="56" height="56" rx="12" fill="#1C71D8"/>
+
+  <!-- Dashboard grid (background layer, low-contrast) -->
+  <rect x="14" y="40" width="8" height="12" rx="2" fill="#FFFFFF" opacity="0.45"/>
+  <rect x="25" y="36" width="8" height="16" rx="2" fill="#FFFFFF" opacity="0.55"/>
+  <rect x="36" y="42" width="8" height="10" rx="2" fill="#FFFFFF" opacity="0.45"/>
+  <rect x="47" y="38" width="8" height="14" rx="2" fill="#FFFFFF" opacity="0.55"/>
+
+  <!-- Connection: central hub + two satellites -->
+  <circle cx="22" cy="20" r="5" fill="#FFFFFF"/>
+  <circle cx="42" cy="20" r="5" fill="#FFFFFF"/>
+  <circle cx="32" cy="28" r="6" fill="#FFFFFF"/>
+
+  <!-- Links -->
+  <path d="M22 20 L32 28" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round"/>
+  <path d="M42 20 L32 28" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round"/>
+</svg>

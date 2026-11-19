@@ -75,7 +75,8 @@ packaging/build-appimage.sh
 ```
 
 The script builds the release binary, assembles an AppDir (binary, icon, desktop entry and
-AppStream metadata) and downloads `appimagetool` on first use. Set `SKIP_BUILD=1` to reuse an
+AppStream metadata) and downloads `appimagetool` on first use. `icon.png` is the 512×512
+rendering of `icon.svg`, which is the editable icon source. Set `SKIP_BUILD=1` to reuse an
 existing release binary. The image bundles only the application: the graphics stack
 (X11/Wayland libraries and the OpenGL driver) and glibc come from the host, so the image stays
 small (~5 MB) and matches the machine's GPU driver. On systems without FUSE, launch it with

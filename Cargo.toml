@@ -15,6 +15,9 @@ egui = "0.37"
 craft-ui = { git = "https://github.com/storytold/craft-libs", rev = "c260a6e1c3ddd0c73cbfa976284d9209dca4eaf0" }
 # Only used to decode the window icon at startup (PNG feature only).
 image = { version = "0.25", default-features = false, features = ["png"] }
+# The same winit that eframe uses, named directly so the X11 window icon can be set:
+# eframe's built-in icon setter is a no-op on Linux.
+winit = { version = "0.30", default-features = false }
 
 # craft-ui is built against the Craft suite's patched egui (IME context, bidirectional layout).
 # These patches are the same ones craft-libs uses in its own workspace, pinned to the same

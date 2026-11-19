@@ -585,6 +585,7 @@ dependencies = [
  "eframe",
  "egui",
  "image",
+ "winit",
 ]
 
 [[package]]
