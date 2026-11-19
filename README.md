@@ -1,5 +1,8 @@
 # Connection Dashboard
 
+<img width="1082" height="759" alt="Screenshot_20261119_195841" src="https://github.com/user-attachments/assets/b631417e-6d5c-4052-b0aa-ee7d866f20d3" />
+
+
 A native Linux connection dashboard written in Rust. It shows the health of the three links
 between your machine and the internet:
 
