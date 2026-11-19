@@ -4,9 +4,8 @@ mod icons;
 mod net;
 mod theme;
 
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use craft_ui::buttons::{ButtonVisuals, IconButton, IconButtonStyle};
 use craft_ui::layout::Section;
@@ -38,7 +37,6 @@ fn main() -> eframe::Result {
 struct App {
     snapshot: Arc<Mutex<Option<net::Snapshot>>>,
     latest: Option<net::Snapshot>,
-    busy: Arc<AtomicBool>,
     applied_theme: egui::Theme,
     icon_applied: bool,
 }
@@ -51,17 +49,11 @@ impl App {
         theme::install(&cc.egui_ctx, applied_theme == egui::Theme::Dark);
 
         let snapshot = Arc::new(Mutex::new(None));
-        let busy = Arc::new(AtomicBool::new(true));
-        net::spawn_monitor(
-            Arc::clone(&snapshot),
-            Arc::clone(&busy),
-            cc.egui_ctx.clone(),
-        );
+        net::spawn_monitor(Arc::clone(&snapshot), cc.egui_ctx.clone());
 
         Self {
             snapshot,
             latest: None,
-            busy,
             applied_theme,
             icon_applied: false,
         }
@@ -100,7 +92,7 @@ impl App {
         }
     }
 
-    fn header(&mut self, ui: &mut Ui, busy: bool, palette: &Palette) {
+    fn header(&mut self, ui: &mut Ui, palette: &Palette) {
         ui.horizontal(|ui| {
             ui.vertical(|ui| {
                 ui.label(
@@ -131,10 +123,6 @@ impl App {
                     };
                     ui.ctx().set_theme(next);
                 }
-
-                if busy {
-                    ui.add(egui::Spinner::new().size(14.0).color(palette.muted));
-                }
             });
         });
     }
@@ -151,11 +139,10 @@ impl eframe::App for App {
         }
 
         self.poll_snapshot();
-        // Refresh loop wakes every 500ms; request repaint to keep spinner/age live.
+        // Refresh loop wakes every 500ms; request repaint to keep UI live.
         ctx.request_repaint_after(Duration::from_millis(500));
 
         let palette = theme::palette(self.applied_theme == egui::Theme::Dark);
-        let busy = self.busy.load(Ordering::Relaxed);
         let snapshot = self.latest.clone();
 
         egui::CentralPanel::default()
@@ -165,7 +152,7 @@ impl eframe::App for App {
                     .inner_margin(Margin::symmetric(24, 18)),
             )
             .show(ui, |ui| {
-                self.header(ui, busy, &palette);
+                self.header(ui, &palette);
                 ui.add_space(14.0);
                 cards(ui, snapshot.as_ref(), &palette);
                 ui.add_space(16.0);

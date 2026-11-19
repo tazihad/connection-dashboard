@@ -7,8 +7,6 @@
 use std::io::{Read, Write};
 use std::net::{IpAddr, Ipv4Addr, TcpStream, ToSocketAddrs, UdpSocket};
 use std::process::{Command, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::Receiver;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -79,21 +77,17 @@ pub struct Snapshot {
     pub router_up: bool,
     pub internet_up: bool,
     pub interfaces: Vec<Interface>,
+    #[allow(dead_code)]
     pub finished_at: Instant,
 }
 
 /// Start the single background probe thread.
-pub fn spawn_monitor(
-    state: Arc<Mutex<Option<Snapshot>>>,
-    busy: Arc<AtomicBool>,
-    ctx: egui::Context,
-) {
+pub fn spawn_monitor(state: Arc<Mutex<Option<Snapshot>>>, ctx: egui::Context) {
     let _ = std::thread::Builder::new()
         .name("network-probe".to_owned())
         .spawn(move || {
             loop {
                 let started = Instant::now();
-                busy.store(true, Ordering::Relaxed);
                 ctx.request_repaint();
                 let snapshot = probe();
                 let Ok(mut guard) = state.lock() else {
@@ -101,7 +95,6 @@ pub fn spawn_monitor(
                 };
                 *guard = Some(snapshot);
                 drop(guard);
-                busy.store(false, Ordering::Relaxed);
                 ctx.request_repaint();
 
                 // Simple cadence: wait for the refresh interval, minus the probe duration.
