@@ -5,7 +5,7 @@ mod net;
 mod theme;
 
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, mpsc};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use craft_ui::buttons::{ButtonVisuals, IconButton, IconButtonStyle};
@@ -39,7 +39,6 @@ struct App {
     snapshot: Arc<Mutex<Option<net::Snapshot>>>,
     latest: Option<net::Snapshot>,
     busy: Arc<AtomicBool>,
-    refresh_tx: mpsc::Sender<()>,
     applied_theme: egui::Theme,
     icon_applied: bool,
 }
@@ -53,19 +52,16 @@ impl App {
 
         let snapshot = Arc::new(Mutex::new(None));
         let busy = Arc::new(AtomicBool::new(true));
-        let (refresh_tx, refresh_rx) = mpsc::channel();
         net::spawn_monitor(
             Arc::clone(&snapshot),
             Arc::clone(&busy),
             cc.egui_ctx.clone(),
-            refresh_rx,
         );
 
         Self {
             snapshot,
             latest: None,
             busy,
-            refresh_tx,
             applied_theme,
             icon_applied: false,
         }
@@ -136,23 +132,9 @@ impl App {
                     ui.ctx().set_theme(next);
                 }
 
-                let refresh_button =
-                    icon_button(ui, "Refresh network status", Icon::Refresh, palette, false);
-                if refresh_button.on_hover_text("Check again now").clicked() {
-                    let _ = self.refresh_tx.send(());
-                    ui.ctx().request_repaint();
-                }
-
-                ui.add_space(4.0);
                 if busy {
                     ui.add(egui::Spinner::new().size(14.0).color(palette.muted));
                 }
-                let text = if self.latest.is_none() {
-                    "Checking...".to_owned()
-                } else {
-                    age_text(self.latest.as_ref().map(|snapshot| snapshot.finished_at))
-                };
-                ui.label(RichText::new(text).size(12.5).color(palette.muted));
             });
         });
     }
@@ -169,11 +151,8 @@ impl eframe::App for App {
         }
 
         self.poll_snapshot();
-        if ctx.input(|input| input.key_pressed(egui::Key::F5)) {
-            let _ = self.refresh_tx.send(());
-        }
-        // Keep "Updated 12s ago" and the spinner alive without a busy repaint loop.
-        ctx.request_repaint_after(Duration::from_secs(1));
+        // Refresh loop wakes every 500ms; request repaint to keep spinner/age live.
+        ctx.request_repaint_after(Duration::from_millis(500));
 
         let palette = theme::palette(self.applied_theme == egui::Theme::Dark);
         let busy = self.busy.load(Ordering::Relaxed);
@@ -192,19 +171,6 @@ impl eframe::App for App {
                 ui.add_space(16.0);
                 details(ui, snapshot.as_ref(), &palette);
             });
-    }
-}
-
-fn age_text(last: Option<Instant>) -> String {
-    let Some(last) = last else {
-        return "Starting...".to_owned();
-    };
-    let seconds = last.elapsed().as_secs();
-    match seconds {
-        0..=1 => "Updated just now".to_owned(),
-        2..=59 => format!("Updated {seconds}s ago"),
-        60..=3599 => format!("Updated {}m ago", seconds / 60),
-        _ => format!("Updated {}h ago", seconds / 3600),
     }
 }
 

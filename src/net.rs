@@ -13,7 +13,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 /// How often the background monitor refreshes the snapshot.
-pub const REFRESH_INTERVAL: Duration = Duration::from_secs(5);
+pub const REFRESH_INTERVAL: Duration = Duration::from_millis(500);
 
 const HTTP_TIMEOUT: Duration = Duration::from_secs(3);
 const TCP_PROBE_TIMEOUT: Duration = Duration::from_millis(1200);
@@ -87,16 +87,11 @@ pub fn spawn_monitor(
     state: Arc<Mutex<Option<Snapshot>>>,
     busy: Arc<AtomicBool>,
     ctx: egui::Context,
-    refresh: Receiver<()>,
 ) {
     let _ = std::thread::Builder::new()
         .name("network-probe".to_owned())
         .spawn(move || {
             loop {
-                // A manual refresh that arrived while a probe was running is already honoured
-                // by the probe we are about to start.
-                while refresh.try_recv().is_ok() {}
-
                 let started = Instant::now();
                 busy.store(true, Ordering::Relaxed);
                 ctx.request_repaint();
@@ -109,24 +104,9 @@ pub fn spawn_monitor(
                 busy.store(false, Ordering::Relaxed);
                 ctx.request_repaint();
 
-                // Keep a steady cadence: a slow probe shortens the wait, it does not delay it.
-                // Wake once a second so the "Updated ... ago" label stays current, and wake
-                // immediately for a manual refresh.
-                let wait = REFRESH_INTERVAL
-                    .saturating_sub(started.elapsed())
-                    .max(Duration::from_secs(1));
-                let deadline = Instant::now() + wait;
-                loop {
-                    let left = deadline.saturating_duration_since(Instant::now());
-                    if left.is_zero() {
-                        break;
-                    }
-                    match refresh.recv_timeout(left.min(Duration::from_secs(1))) {
-                        Ok(()) => break,
-                        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => ctx.request_repaint(),
-                        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => return,
-                    }
-                }
+                // Simple cadence: wait for the refresh interval, minus the probe duration.
+                let wait = REFRESH_INTERVAL.saturating_sub(started.elapsed());
+                std::thread::sleep(wait);
             }
         });
 }

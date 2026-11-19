@@ -13,7 +13,6 @@ pub enum Icon {
     Internet,
     Wifi,
     Ethernet,
-    Refresh,
     Theme,
 }
 
@@ -34,7 +33,6 @@ pub fn paint(painter: &Painter, rect: Rect, icon: Icon, color: Color32) {
         Icon::Router | Icon::Wifi => wifi(painter, rect, size, stroke, color),
         Icon::Internet => internet(painter, center, size, stroke),
         Icon::Ethernet => ethernet(painter, center, size, stroke),
-        Icon::Refresh => refresh(painter, center, size, stroke, color),
         Icon::Theme => theme(painter, center, size, stroke, color),
     }
 }
@@ -112,26 +110,6 @@ fn ethernet(painter: &Painter, center: Pos2, size: f32, stroke: Stroke) {
             stroke,
         );
     }
-}
-
-fn refresh(painter: &Painter, center: Pos2, size: f32, stroke: Stroke, color: Color32) {
-    let radius = size * 0.34;
-    painter.add(Shape::line(arc(center, radius, -1.85, 4.15), stroke));
-
-    let angle = 4.15_f32;
-    let end = center + vec2(angle.cos(), angle.sin()) * radius;
-    let direction = vec2(-angle.sin(), angle.cos()).normalized();
-    let side = vec2(-direction.y, direction.x);
-    let tip = end + direction * size * 0.11;
-    painter.add(Shape::convex_polygon(
-        vec![
-            tip,
-            end - direction * size * 0.05 + side * size * 0.09,
-            end - direction * size * 0.05 - side * size * 0.09,
-        ],
-        color,
-        Stroke::NONE,
-    ));
 }
 
 fn theme(painter: &Painter, center: Pos2, size: f32, stroke: Stroke, color: Color32) {
