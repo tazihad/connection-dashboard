@@ -1,0 +1,39 @@
+[package]
+name = "connection-dashboard"
+version = "0.2.0"
+edition = "2024"
+rust-version = "1.95"
+description = "A fast native Linux connection dashboard"
+
+[dependencies]
+# egui/eframe: immediate-mode GUI, repaints only when something changes. Glow keeps start-up
+# and build times low; no GPU compute or wgpu stack is needed for this window.
+eframe = { version = "0.37", default-features = false, features = ["accesskit", "default_fonts", "glow", "wayland", "x11"] }
+egui = "0.37"
+# Shared Craft UI controls (icon buttons, themed sections, widget palette).
+# Pinned to a revision so builds are reproducible.
+craft-ui = { git = "https://github.com/storytold/craft-libs", rev = "c260a6e1c3ddd0c73cbfa976284d9209dca4eaf0" }
+# Only used to decode the window icon at startup (PNG feature only).
+image = { version = "0.25", default-features = false, features = ["png"] }
+
+# craft-ui is built against the Craft suite's patched egui (IME context, bidirectional layout).
+# These patches are the same ones craft-libs uses in its own workspace, pinned to the same
+# immutable revision. Cargo does not inherit a dependency's [patch] section, so we repeat it.
+[patch.crates-io]
+ecolor = { git = "https://github.com/storytold/egui.git", rev = "6d518fc799681571963842f95b55a6b68431b15a" }
+emath = { git = "https://github.com/storytold/egui.git", rev = "6d518fc799681571963842f95b55a6b68431b15a" }
+epaint = { git = "https://github.com/storytold/egui.git", rev = "6d518fc799681571963842f95b55a6b68431b15a" }
+epaint_default_fonts = { git = "https://github.com/storytold/egui.git", rev = "6d518fc799681571963842f95b55a6b68431b15a" }
+egui = { git = "https://github.com/storytold/egui.git", rev = "6d518fc799681571963842f95b55a6b68431b15a" }
+egui-winit = { git = "https://github.com/storytold/egui.git", rev = "6d518fc799681571963842f95b55a6b68431b15a" }
+egui_glow = { git = "https://github.com/storytold/egui.git", rev = "6d518fc799681571963842f95b55a6b68431b15a" }
+eframe = { git = "https://github.com/storytold/egui.git", rev = "6d518fc799681571963842f95b55a6b68431b15a" }
+# The suite's egui-winit uses the reviewed winit fork's IME and shortcut hooks.
+winit = { git = "https://github.com/storytold/winit.git", rev = "a517b3846ee8457d84ee4975110bfda6797c44dc" }
+
+[profile.release]
+lto = "thin"
+strip = true
+
+[lints.rust]
+unsafe_code = "forbid"
