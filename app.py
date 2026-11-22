@@ -38,6 +38,24 @@ def get_gateway_ip():
     except Exception:
         return None
 
+def get_isp_gateway_ip():
+    """Get the ISP gateway IP (first hop after local gateway) via traceroute."""
+    try:
+        result = subprocess.run(
+            ["traceroute", "-n", "-m", "2", "-q", "1", "-w", "1", "8.8.8.8"],
+            capture_output=True, text=True, timeout=5
+        )
+        lines = result.stdout.strip().splitlines()
+        if len(lines) >= 2:
+            parts = lines[1].split()
+            if len(parts) >= 2:
+                ip = parts[1]
+                if ip != "*" and not ip.startswith("?"):
+                    return ip
+        return None
+    except Exception:
+        return None
+
 def ping(host):
     if not host or host in ["Unknown", "Could not get gateway IP:"]:
         return False
@@ -144,8 +162,6 @@ class StatusBox(QFrame):
         self.setLayout(layout)
         self.setFixedSize(250, 200)
 
-
-
     def update(self, ip, status):
         ip_display = ip if ip else "No IP"
         self.ip_label.setText(f"IP: {ip_display}")
@@ -185,11 +201,12 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Connection Dashboard")
-        self.setMinimumSize(700, 400)
+        self.setMinimumSize(950, 600)
         self.resize(950, 600)
 
         self.desktop_box = StatusBox("Desktop", "IP: ...", False, "💻")
         self.router_box = StatusBox("Router", "IP: ...", False, "📶")
+        self.provider_gateway_box = StatusBox("Provider Gateway", "IP: ...", False, "🚪")
         self.internet_box = StatusBox("Internet", "IP: ...", False, "🌐")
 
         connect_icon1 = QLabel("⟶")
@@ -198,6 +215,9 @@ class MainWindow(QMainWindow):
         connect_icon2 = QLabel("⟶")
         connect_icon2.setAlignment(Qt.AlignmentFlag.AlignCenter)
         connect_icon2.setStyleSheet("font-size: 28px;")
+        connect_icon3 = QLabel("⟶")
+        connect_icon3.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        connect_icon3.setStyleSheet("font-size: 28px;")
 
         boxes_layout = QHBoxLayout()
         boxes_layout.addStretch()
@@ -205,6 +225,8 @@ class MainWindow(QMainWindow):
         boxes_layout.addWidget(connect_icon1)
         boxes_layout.addWidget(self.router_box)
         boxes_layout.addWidget(connect_icon2)
+        boxes_layout.addWidget(self.provider_gateway_box)
+        boxes_layout.addWidget(connect_icon3)
         boxes_layout.addWidget(self.internet_box)
         boxes_layout.addStretch()
 
@@ -236,24 +258,29 @@ class MainWindow(QMainWindow):
         public_ip = get_public_ip()
         local_ip = get_local_ip()
         gateway_ip = get_gateway_ip()
+        isp_gateway_ip = get_isp_gateway_ip()
 
         desktop_status = True if local_ip else False
         router_status = ping(gateway_ip) if gateway_ip else False
-        internet_status = ping("8.8.8.8") if router_status else False
+        isp_gateway_status = ping(isp_gateway_ip) if isp_gateway_ip else False
+        internet_status = ping("8.8.8.8")
 
         self.desktop_box.update(local_ip, desktop_status)
         self.router_box.update(gateway_ip, router_status)
+        self.provider_gateway_box.update(isp_gateway_ip, isp_gateway_status)
         self.internet_box.update(public_ip, internet_status)
 
         info_lines = []
-        if desktop_status and router_status and internet_status:
+        if desktop_status and router_status and isp_gateway_status and internet_status:
             info_lines.append("✅ Network is working fine.")
         elif not desktop_status:
             info_lines.append("❌ Problem with your desktop network adapter or configuration.")
         elif not router_status:
             info_lines.append("❌ Problem connecting to your router. Check router and cable/wifi.")
+        elif not isp_gateway_status:
+            info_lines.append("❌ Connected to router, but cannot reach ISP gateway. Last-mile / ISP CPE issue.")
         elif not internet_status:
-            info_lines.append("❌ Connected to router, but no internet. The issue may be with your ISP.")
+            info_lines.append("❌ Connected to ISP gateway, but no internet. ISP backbone / peering issue.")
         else:
             info_lines.append("⚠️ Unable to determine network status.")
 
