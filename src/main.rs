@@ -345,58 +345,64 @@ fn details(ui: &mut Ui, snapshot: Option<&net::Snapshot>, palette: &Palette) {
         .corner_radius(CornerRadius::same(12))
         .inner_margin(Margin::symmetric(16, 12));
 
+    // Exactly match cards layout: horizontal with left_pad, content, right_pad
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 0.0;
         ui.add_space(left_pad);
-        // No set_max_width - let Section fill naturally like cards do
-        Section::new(frame)
-            .heading(
-                RichText::new("Details")
-                    .size(14.0)
-                    .strong()
-                    .color(palette.text),
-            )
-            .show(ui, |ui| {
-                ui.set_min_width(group_width); // Ensure at least card-group width
-                let Some(snapshot) = snapshot else {
+
+        // Use a Frame with fixed width to match card group exactly
+        Frame::new().inner_margin(0.0).show(ui, |ui| {
+            ui.set_min_width(group_width);
+            ui.set_max_width(group_width);
+            Section::new(frame)
+                .heading(
+                    RichText::new("Details")
+                        .size(14.0)
+                        .strong()
+                        .color(palette.text),
+                )
+                .show(ui, |ui| {
+                    let Some(snapshot) = snapshot else {
+                        ui.horizontal(|ui| {
+                            ui.add(egui::Spinner::new().size(14.0).color(palette.muted));
+                            ui.label(
+                                RichText::new("Checking network status...")
+                                    .size(14.0)
+                                    .color(palette.muted),
+                            );
+                        });
+                        return;
+                    };
+
+                    let (tone, color, message) = summary(snapshot, palette);
                     ui.horizontal(|ui| {
-                        ui.add(egui::Spinner::new().size(14.0).color(palette.muted));
+                        let (icon_rect, _) = ui.allocate_exact_size(vec2(18.0, 18.0), Sense::hover());
+                        icons::paint_tone(ui.painter(), icon_rect, tone, color);
+                        ui.label(RichText::new(message).size(14.5).strong().color(color));
+                    });
+                    ui.add_space(4.0);
+                    ui.separator();
+                    ui.add_space(3.0);
+
+                    let links: Vec<&net::Interface> = snapshot
+                        .interfaces
+                        .iter()
+                        .filter(|interface| interface.kind != net::LinkKind::Other)
+                        .collect();
+                    if links.is_empty() {
                         ui.label(
-                            RichText::new("Checking network status...")
-                                .size(14.0)
+                            RichText::new("No Ethernet or Wi-Fi interfaces were found.")
+                                .size(13.0)
                                 .color(palette.muted),
                         );
-                    });
-                    return;
-                };
-
-                let (tone, color, message) = summary(snapshot, palette);
-                ui.horizontal(|ui| {
-                    let (icon_rect, _) = ui.allocate_exact_size(vec2(18.0, 18.0), Sense::hover());
-                    icons::paint_tone(ui.painter(), icon_rect, tone, color);
-                    ui.label(RichText::new(message).size(14.5).strong().color(color));
-                });
-                ui.add_space(4.0);
-                ui.separator();
-                ui.add_space(3.0);
-
-                let links: Vec<&net::Interface> = snapshot
-                    .interfaces
-                    .iter()
-                    .filter(|interface| interface.kind != net::LinkKind::Other)
-                    .collect();
-                if links.is_empty() {
-                    ui.label(
-                        RichText::new("No Ethernet or Wi-Fi interfaces were found.")
-                            .size(13.0)
-                            .color(palette.muted),
-                    );
-                } else {
-                    for interface in links {
-                        interface_row(ui, interface, palette);
+                    } else {
+                        for interface in links {
+                            interface_row(ui, interface, palette);
+                        }
                     }
-                }
-            });
+                });
+        });
+
         ui.add_space(left_pad);
     });
 }
