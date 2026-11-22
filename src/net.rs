@@ -263,23 +263,25 @@ fn gateway_ip() -> Option<String> {
 }
 
 fn provider_gateway_ip() -> Option<String> {
-    // Use traceroute to find the first hop beyond the local gateway (hop 2)
-    // -n: numeric output, -m 2: max 2 hops, -q 1: 1 probe, -w 1: 1s timeout
-    let output = run("traceroute", &["-n", "-m", "2", "-q", "1", "-w", "1", "8.8.8.8"])?;
+    // Use traceroute to find the first hop beyond the local gateway
+    // -n: numeric output, -m 3: max 3 hops (in case hop 1 times out), -q 1: 1 probe, -w 1: 1s timeout
+    let output = run("traceroute", &["-n", "-m", "3", "-q", "1", "-w", "1", "8.8.8.8"])?;
     let lines: Vec<&str> = output.lines().collect();
-    if lines.len() >= 2 {
-        // Line 1 is local gateway, line 2 is ISP/provider gateway
-        let parts: Vec<&str> = lines[1].split_whitespace().collect();
+    if lines.len() < 2 {
+        return None;
+    }
+
+    // Skip the header line (index 0), then find the first hop that's not "*" and not the local gateway
+    let local_gw = gateway_ip().unwrap_or_default();
+
+    for line in lines.iter().skip(1) {
+        let parts: Vec<&str> = line.split_whitespace().collect();
         if parts.len() >= 2 {
             let ip = parts[1];
             if ip != "*" && !ip.starts_with('?') && ip.parse::<IpAddr>().is_ok() {
-                // Avoid returning the same IP as the local gateway
-                if let Some(local_gw) = gateway_ip()
-                    && ip == local_gw
-                {
-                    return None;
+                if ip != local_gw {
+                    return Some(ip.to_owned());
                 }
-                return Some(ip.to_owned());
             }
         }
     }
