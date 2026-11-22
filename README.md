@@ -2,12 +2,11 @@
 
 <img width="1082" height="759" alt="Screenshot_20261119_195841" src="https://github.com/user-attachments/assets/b631417e-6d5c-4052-b0aa-ee7d866f20d3" />
 
-
-A native Linux connection dashboard written in Rust. It shows the health of the three links
+A native Linux connection dashboard written in Rust. It shows the health of the four links
 between your machine and the internet:
 
 ```
-[ Desktop ] --> [ Router ] --> [ Internet ]
+[ Desktop ] --> [ Router ] --> [ Provider Gateway ] --> [ Internet ]
 ```
 
 For each link it shows the relevant IP address, whether the link is up, and a plain-language
@@ -55,6 +54,7 @@ patched `egui`/`winit`, so this project repeats the same immutable `[patch.crate
 | --- | --- |
 | Desktop | IPv4 address from the routing table (`UDP connect` trick), falling back to `ip addr` |
 | Router | Gateway from `ip route`, falling back to `/proc/net/route`; reachable by ICMP, then TCP ports 80/443/53 |
+| Provider Gateway | First hop beyond the router via `traceroute` to `8.8.8.8`; reachable by ICMP, then TCP ports 80/443/53 |
 | Internet | TCP 443 to `1.1.1.1`/`8.8.8.8` (ICMP fallback), so networks that drop ping still work |
 
 Ethernet follows the kernel's `LOWER_UP` link flag (`Plugged in` / `Plugged out`). Wi-Fi is
@@ -64,9 +64,13 @@ The public IP is fetched over a short-timeout HTTP request to `api.ipify.org`, w
 `checkip.amazonaws.com` and `icanhazip.com` as fallbacks. Only the address is used, and only for
 display.
 
-Press the refresh button to probe immediately; otherwise the snapshot refreshes every five
-seconds. The sun/moon-style button switches between light and dark themes (the initial theme
-follows the desktop preference).
+Probes run on a layered schedule: cheap local signals (link state, routing table) are checked every
+500&nbsp;ms; gateway and internet probes run every 10&nbsp;s while online, with exponential back-off
+(1&nbsp;s, 2&nbsp;s, 4&nbsp;s, max 5&nbsp;s) when offline. A tier must fail twice in a row before
+flipping from up to down.
+
+Press the refresh button to probe immediately. The sun/moon-style button switches between light and
+dark themes (the initial theme follows the desktop preference).
 
 ## AppImage
 
