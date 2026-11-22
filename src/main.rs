@@ -15,6 +15,7 @@ use egui::{
 };
 
 use icons::{Icon, Tone};
+use net::Snapshot;
 use theme::Palette;
 
 fn main() -> eframe::Result {
@@ -161,23 +162,24 @@ impl eframe::App for App {
     }
 }
 
-fn cards(ui: &mut Ui, snapshot: Option<&net::Snapshot>, palette: &Palette) {
+fn cards(ui: &mut Ui, snapshot: Option<&Snapshot>, palette: &Palette) {
     let available = ui.available_width();
     let spacing = 12.0;
     let arrow_width = 34.0;
-    let card_width = ((available - 2.0 * arrow_width - 4.0 * spacing) / 3.0).clamp(170.0, 300.0);
-    let group_width = 3.0 * card_width + 2.0 * arrow_width + 4.0 * spacing;
+    let card_width = ((available - 3.0 * arrow_width - 5.0 * spacing) / 4.0).clamp(170.0, 300.0);
+    let group_width = 4.0 * card_width + 3.0 * arrow_width + 5.0 * spacing;
     let left_pad = ((available - group_width) / 2.0).max(0.0);
     let height = 200.0;
     let checking = snapshot.is_none();
 
-    let (desktop, router, internet) = match snapshot {
+    let (desktop, router, provider_gateway, internet) = match snapshot {
         Some(snapshot) => (
             Some(snapshot.desktop_up),
             Some(snapshot.router_up),
+            Some(snapshot.provider_gateway_up),
             Some(snapshot.internet_up),
         ),
-        None => (None, None, None),
+        None => (None, None, None, None),
     };
     let ip_text = |ip: Option<&str>| match ip {
         Some(ip) => format!("IP: {ip}"),
@@ -201,6 +203,12 @@ fn cards(ui: &mut Ui, snapshot: Option<&net::Snapshot>, palette: &Palette) {
                 Icon::Router,
                 snapshot.and_then(|snapshot| snapshot.gateway_ip.as_deref()),
                 router,
+            ),
+            (
+                "Provider Gateway",
+                Icon::ProviderGateway,
+                snapshot.and_then(|snapshot| snapshot.provider_gateway_ip.as_deref()),
+                provider_gateway,
             ),
             (
                 "Internet",
@@ -407,7 +415,7 @@ fn interface_row(ui: &mut Ui, interface: &net::Interface, palette: &Palette) {
     });
 }
 
-fn summary(snapshot: &net::Snapshot, palette: &Palette) -> (Tone, Color32, &'static str) {
+fn summary(snapshot: &Snapshot, palette: &Palette) -> (Tone, Color32, &'static str) {
     if !snapshot.desktop_up {
         (
             Tone::Error,
@@ -420,11 +428,17 @@ fn summary(snapshot: &net::Snapshot, palette: &Palette) -> (Tone, Color32, &'sta
             palette.amber,
             "Problem connecting to the router. Check the router and the cable/Wi-Fi.",
         )
+    } else if !snapshot.provider_gateway_up {
+        (
+            Tone::Warn,
+            palette.amber,
+            "Connected to router, but cannot reach ISP gateway. Last-mile / ISP CPE issue.",
+        )
     } else if !snapshot.internet_up {
         (
             Tone::Warn,
             palette.amber,
-            "Connected to the router, but there is no internet. The issue may be with the ISP.",
+            "Connected to ISP gateway, but no internet. ISP backbone / peering issue.",
         )
     } else {
         (Tone::Ok, palette.green, "Network is working fine.")

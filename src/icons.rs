@@ -10,6 +10,7 @@ use std::f32::consts::{FRAC_PI_2, PI, TAU};
 pub enum Icon {
     Desktop,
     Router,
+    ProviderGateway,
     Internet,
     Wifi,
     Ethernet,
@@ -31,6 +32,7 @@ pub fn paint(painter: &Painter, rect: Rect, icon: Icon, color: Color32) {
     match icon {
         Icon::Desktop => desktop(painter, center, size, stroke),
         Icon::Router | Icon::Wifi => wifi(painter, rect, size, stroke, color),
+        Icon::ProviderGateway => provider_gateway(painter, center, size, stroke),
         Icon::Internet => internet(painter, center, size, stroke),
         Icon::Ethernet => ethernet(painter, center, size, stroke),
         Icon::Theme => theme(painter, center, size, stroke, color),
@@ -110,6 +112,39 @@ fn ethernet(painter: &Painter, center: Pos2, size: f32, stroke: Stroke) {
             stroke,
         );
     }
+}
+
+fn provider_gateway(painter: &Painter, center: Pos2, size: f32, stroke: Stroke) {
+    // Door-like icon representing ISP gateway/entry point
+    let w = size * 0.48;
+    let h = size * 0.58;
+    let door = Rect::from_center_size(
+        center + vec2(0.0, size * 0.04),
+        vec2(w, h),
+    );
+    painter.rect_stroke(door, CornerRadius::same(2), stroke, StrokeKind::Inside);
+
+    // Door frame top
+    painter.line_segment(
+        [
+            pos2(door.left(), door.top()),
+            pos2(door.right(), door.top()),
+        ],
+        stroke,
+    );
+
+    // Door handle (small circle on the right)
+    let handle_center = pos2(door.right() - w * 0.12, door.center().y);
+    painter.circle_stroke(handle_center, w * 0.07, stroke);
+
+    // Keyhole / lock suggestion
+    painter.line_segment(
+        [
+            pos2(center.x - w * 0.14, door.bottom() + size * 0.02),
+            pos2(center.x + w * 0.14, door.bottom() + size * 0.02),
+        ],
+        stroke,
+    );
 }
 
 fn theme(painter: &Painter, center: Pos2, size: f32, stroke: Stroke, color: Color32) {

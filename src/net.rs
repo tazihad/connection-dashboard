@@ -72,9 +72,11 @@ impl Interface {
 pub struct Snapshot {
     pub local_ip: Option<String>,
     pub gateway_ip: Option<String>,
+    pub provider_gateway_ip: Option<String>,
     pub public_ip: Option<String>,
     pub desktop_up: bool,
     pub router_up: bool,
+    pub provider_gateway_up: bool,
     pub internet_up: bool,
     pub interfaces: Vec<Interface>,
     #[allow(dead_code)]
@@ -108,18 +110,25 @@ fn probe() -> Snapshot {
     let interfaces = read_interfaces();
     let local_ip = primary_local_ip(&interfaces);
     let gateway_ip = gateway_ip();
+    let provider_gateway_ip = provider_gateway_ip();
     let desktop_up = local_ip.is_some();
     let router_up = gateway_ip.as_deref().is_some_and(router_reachable);
-    let internet_up = router_up && internet_reachable();
-    // Skip DNS and HTTP entirely while offline: that is what let the old app stall on start-up.
+    let provider_gateway_up = provider_gateway_ip
+        .as_deref()
+        .is_some_and(|ip| ping(ip) || [80u16, 443, 53].into_iter().any(|port| tcp_open(ip, port, ROUTER_PORT_TIMEOUT)));
+    // Internet check is independent - always test it
+    let internet_up = internet_reachable();
+    // Skip DNS and HTTP entirely while offline
     let public_ip = if internet_up { fetch_public_ip() } else { None };
 
     Snapshot {
         local_ip,
         gateway_ip,
+        provider_gateway_ip,
         public_ip,
         desktop_up,
         router_up,
+        provider_gateway_up,
         internet_up,
         interfaces,
         finished_at: Instant::now(),
@@ -251,6 +260,24 @@ fn gateway_ip() -> Option<String> {
     // Offline-friendly fallback that needs no external program.
     let route = std::fs::read_to_string("/proc/net/route").ok()?;
     parse_proc_net_route(&route)
+}
+
+fn provider_gateway_ip() -> Option<String> {
+    // Use traceroute to find the first hop beyond the local gateway (hop 2)
+    // -n: numeric output, -m 2: max 2 hops, -q 1: 1 probe, -w 1: 1s timeout
+    let output = run("traceroute", &["-n", "-m", "2", "-q", "1", "-w", "1", "8.8.8.8"])?;
+    let lines: Vec<&str> = output.lines().collect();
+    if lines.len() >= 2 {
+        // Line 1 is local gateway, line 2 is ISP/provider gateway
+        let parts: Vec<&str> = lines[1].split_whitespace().collect();
+        if parts.len() >= 2 {
+            let ip = parts[1];
+            if ip != "*" && !ip.starts_with('?') && ip.parse::<IpAddr>().is_ok() {
+                return Some(ip.to_owned());
+            }
+        }
+    }
+    None
 }
 
 pub fn parse_default_gateway(text: &str) -> Option<String> {
