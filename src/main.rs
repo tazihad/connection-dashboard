@@ -337,53 +337,58 @@ fn details(ui: &mut Ui, snapshot: Option<&net::Snapshot>, palette: &Palette) {
         .corner_radius(CornerRadius::same(12))
         .inner_margin(Margin::symmetric(16, 12));
 
-    Section::new(frame)
-        .heading(
-            RichText::new("Details")
-                .size(14.0)
-                .strong()
-                .color(palette.text),
-        )
-        .show(ui, |ui| {
-            let Some(snapshot) = snapshot else {
+    // Use the full width available
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 0.0;
+        Section::new(frame)
+            .heading(
+                RichText::new("Details")
+                    .size(14.0)
+                    .strong()
+                    .color(palette.text),
+            )
+            .show(ui, |ui| {
+                ui.set_width(ui.available_width());
+                let Some(snapshot) = snapshot else {
+                    ui.horizontal(|ui| {
+                        ui.add(egui::Spinner::new().size(14.0).color(palette.muted));
+                        ui.label(
+                            RichText::new("Checking network status...")
+                                .size(14.0)
+                                .color(palette.muted),
+                        );
+                    });
+                    return;
+                };
+
+                let (tone, color, message) = summary(snapshot, palette);
                 ui.horizontal(|ui| {
-                    ui.add(egui::Spinner::new().size(14.0).color(palette.muted));
+                    let (icon_rect, _) = ui.allocate_exact_size(vec2(18.0, 18.0), Sense::hover());
+                    icons::paint_tone(ui.painter(), icon_rect, tone, color);
+                    ui.label(RichText::new(message).size(14.5).strong().color(color));
+                });
+                ui.add_space(4.0);
+                ui.separator();
+                ui.add_space(3.0);
+
+                let links: Vec<&net::Interface> = snapshot
+                    .interfaces
+                    .iter()
+                    .filter(|interface| interface.kind != net::LinkKind::Other)
+                    .collect();
+                if links.is_empty() {
                     ui.label(
-                        RichText::new("Checking network status...")
-                            .size(14.0)
+                        RichText::new("No Ethernet or Wi-Fi interfaces were found.")
+                            .size(13.0)
                             .color(palette.muted),
                     );
-                });
-                return;
-            };
-
-            let (tone, color, message) = summary(snapshot, palette);
-            ui.horizontal(|ui| {
-                let (icon_rect, _) = ui.allocate_exact_size(vec2(18.0, 18.0), Sense::hover());
-                icons::paint_tone(ui.painter(), icon_rect, tone, color);
-                ui.label(RichText::new(message).size(14.5).strong().color(color));
-            });
-            ui.add_space(4.0);
-            ui.separator();
-            ui.add_space(3.0);
-
-            let links: Vec<&net::Interface> = snapshot
-                .interfaces
-                .iter()
-                .filter(|interface| interface.kind != net::LinkKind::Other)
-                .collect();
-            if links.is_empty() {
-                ui.label(
-                    RichText::new("No Ethernet or Wi-Fi interfaces were found.")
-                        .size(13.0)
-                        .color(palette.muted),
-                );
-            } else {
-                for interface in links {
-                    interface_row(ui, interface, palette);
+                } else {
+                    for interface in links {
+                        interface_row(ui, interface, palette);
+                    }
                 }
-            }
-        });
+            });
+    });
 }
 
 fn interface_row(ui: &mut Ui, interface: &net::Interface, palette: &Palette) {
@@ -399,6 +404,7 @@ fn interface_row(ui: &mut Ui, interface: &net::Interface, palette: &Palette) {
         net::LinkKind::Other => Icon::Internet,
     };
     ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 8.0;
         let (icon_rect, _) = ui.allocate_exact_size(vec2(18.0, 18.0), Sense::hover());
         icons::paint(ui.painter(), icon_rect, icon, palette.muted);
         ui.label(
@@ -406,14 +412,14 @@ fn interface_row(ui: &mut Ui, interface: &net::Interface, palette: &Palette) {
                 .size(13.5)
                 .color(palette.text),
         );
-        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            ui.label(
-                RichText::new(interface.state_text())
-                    .size(13.5)
-                    .strong()
-                    .color(color),
-            );
-        });
+        // Push status to the right with minimal gap
+        ui.allocate_space(vec2(ui.available_width(), 0.0));
+        ui.label(
+            RichText::new(interface.state_text())
+                .size(13.5)
+                .strong()
+                .color(color),
+        );
     });
 }
 
