@@ -1,8 +1,18 @@
 //! Network probing.
 //!
-//! Everything in this module can block (DNS, ICMP, TCP and HTTP), so the whole probe runs on
-//! the monitor thread. The UI only ever reads a finished [`Snapshot`], which is why the window
-//! opens immediately even when the machine has no network at all.
+//! Monitoring is layered, the way Android's connectivity stack does it:
+//!
+//! 1. Cheap local signals (sysfs link state, the routing table, the source address) are read
+//!    every [`LOCAL_POLL`]. That is a few file reads and one UDP `connect`, with no network
+//!    traffic and no child processes.
+//! 2. Real probes (gateway, internet, public IP) run only when those local signals change, or
+//!    on a timer: slow while online, backing off while offline.
+//! 3. A tier must fail twice in a row before it flips from up to down, so one dropped packet
+//!    does not flicker the UI.
+//!
+//! Everything that can block (DNS, ICMP, TCP and HTTP) runs on the monitor thread. The UI only
+//! ever reads a finished [`Snapshot`], which is why the window opens immediately even when the
+//! machine has no network at all.
 
 use std::io::{Read, Write};
 use std::net::{IpAddr, Ipv4Addr, TcpStream, ToSocketAddrs, UdpSocket};
@@ -10,8 +20,18 @@ use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-/// How often the background monitor refreshes the snapshot.
-pub const REFRESH_INTERVAL: Duration = Duration::from_millis(500);
+/// How often the cheap local signals are read. File reads only, no network traffic.
+const LOCAL_POLL: Duration = Duration::from_millis(500);
+/// Probe cadence while the internet is reachable.
+const ONLINE_INTERVAL: Duration = Duration::from_secs(10);
+/// Quick follow-up probe while a failure is still being confirmed.
+const RECHECK_DELAY: Duration = Duration::from_secs(1);
+/// Offline probes back off 1s, 2s, 4s and then stay at this cap.
+const OFFLINE_MAX_DELAY: Duration = Duration::from_secs(5);
+/// How long a fetched public IP is trusted before it is looked up again.
+const PUBLIC_IP_REFRESH: Duration = Duration::from_secs(600);
+/// How long to wait before retrying a failed public IP lookup.
+const PUBLIC_IP_RETRY: Duration = Duration::from_secs(60);
 
 const HTTP_TIMEOUT: Duration = Duration::from_secs(3);
 const TCP_PROBE_TIMEOUT: Duration = Duration::from_millis(1200);
@@ -83,49 +103,221 @@ pub struct Snapshot {
     pub finished_at: Instant,
 }
 
+// ---------------------------------------------------------------------------
+// Monitor loop
+// ---------------------------------------------------------------------------
+
 /// Start the single background probe thread.
 pub fn spawn_monitor(state: Arc<Mutex<Option<Snapshot>>>, ctx: egui::Context) {
     let _ = std::thread::Builder::new()
         .name("network-probe".to_owned())
         .spawn(move || {
-            loop {
-                let started = Instant::now();
-                ctx.request_repaint();
-                let snapshot = probe();
+            // Returns false when the UI side has gone away (poisoned lock) and we should stop.
+            let publish = |snapshot: Snapshot| -> bool {
                 let Ok(mut guard) = state.lock() else {
-                    break;
+                    return false;
                 };
                 *guard = Some(snapshot);
                 drop(guard);
                 ctx.request_repaint();
+                true
+            };
 
-                // Simple cadence: wait for the refresh interval, minus the probe duration.
-                let wait = REFRESH_INTERVAL.saturating_sub(started.elapsed());
-                std::thread::sleep(wait);
+            let mut last_fingerprint: Option<LinkFingerprint> = None;
+            let mut next_probe = Instant::now();
+            let mut router_fails = 0u32;
+            let mut provider_gateway_fails = 0u32;
+            let mut internet_fails = 0u32;
+            let mut offline_streak = 0u32;
+            // (router_up, provider_gateway_up, internet_up) as last published, used for debouncing.
+            let mut previous: Option<(bool, bool, bool)> = None;
+            let mut public_ip: Option<String> = None;
+            let mut ip_checked_at: Option<Instant> = None;
+
+            loop {
+                // Layer 1: cheap local signals. The first pass always counts as a change.
+                let fingerprint = LinkFingerprint::read();
+                let local_changed = last_fingerprint.as_ref() != Some(&fingerprint);
+                last_fingerprint = Some(fingerprint);
+
+                // Layer 2: real probes, only on a local change or when the timer is due.
+                if local_changed || Instant::now() >= next_probe {
+                    if local_changed {
+                        // New link, new address or new route: restart from a clean slate.
+                        offline_streak = 0;
+                        public_ip = None;
+                        ip_checked_at = None;
+                    }
+
+                    let mut snapshot = probe();
+                    let raw_router = snapshot.router_up;
+                    let raw_provider_gateway = snapshot.provider_gateway_up;
+                    let raw_internet = snapshot.internet_up;
+
+                    // Layer 3: debounce. A fresh local change is trusted immediately.
+                    if local_changed {
+                        router_fails = 0;
+                        provider_gateway_fails = 0;
+                        internet_fails = 0;
+                    } else if let Some((was_router, was_provider, was_internet)) = previous {
+                        snapshot.router_up = debounce(was_router, raw_router, &mut router_fails);
+                        snapshot.provider_gateway_up = debounce(was_provider, raw_provider_gateway, &mut provider_gateway_fails);
+                        snapshot.internet_up = debounce(was_internet, raw_internet, &mut internet_fails);
+                    }
+                    let held = (snapshot.router_up && !raw_router)
+                        || (snapshot.provider_gateway_up && !raw_provider_gateway)
+                        || (snapshot.internet_up && !raw_internet);
+                    previous = Some((snapshot.router_up, snapshot.provider_gateway_up, snapshot.internet_up));
+
+                    if snapshot.internet_up {
+                        snapshot.public_ip = public_ip.clone();
+                    } else {
+                        public_ip = None;
+                        ip_checked_at = None;
+                    }
+
+                    let delay = if !snapshot.internet_up {
+                        let delay = offline_delay(offline_streak);
+                        offline_streak += 1;
+                        delay
+                    } else {
+                        offline_streak = 0;
+                        if held { RECHECK_DELAY } else { ONLINE_INTERVAL }
+                    };
+                    next_probe = Instant::now() + delay;
+
+                    // Only look up the public IP when it is missing or stale, never every cycle.
+                    let ip_due = ip_checked_at.is_none_or(|checked| {
+                        let max_age = if public_ip.is_some() {
+                            PUBLIC_IP_REFRESH
+                        } else {
+                            PUBLIC_IP_RETRY
+                        };
+                        checked.elapsed() > max_age
+                    });
+                    let want_ip = snapshot.internet_up && !held && ip_due;
+
+                    // Publish the status first so the UI never waits on the IP lookup.
+                    if !publish(snapshot.clone()) {
+                        break;
+                    }
+
+                    if want_ip {
+                        public_ip = fetch_public_ip();
+                        ip_checked_at = Some(Instant::now());
+                        snapshot.public_ip = public_ip.clone();
+                        if !publish(snapshot) {
+                            break;
+                        }
+                    }
+                }
+
+                std::thread::sleep(LOCAL_POLL);
             }
         });
 }
 
+/// Report "down" only after two consecutive failed probes.
+fn debounce(was_up: bool, now_up: bool, fails: &mut u32) -> bool {
+    if now_up {
+        *fails = 0;
+        true
+    } else if was_up && *fails < 1 {
+        *fails += 1;
+        true
+    } else {
+        false
+    }
+}
+
+/// Offline probes back off 1s, 2s, 4s, then hold at [`OFFLINE_MAX_DELAY`].
+fn offline_delay(failures: u32) -> Duration {
+    Duration::from_secs(1u64 << failures.min(3)).min(OFFLINE_MAX_DELAY)
+}
+
+// ---------------------------------------------------------------------------
+// Local fingerprint (layer 1)
+// ---------------------------------------------------------------------------
+
+/// Everything that can change without any network probe noticing: link state per physical
+/// interface, the routing table and the source address. Comparing two of these is nearly free.
+#[derive(Debug, PartialEq, Eq)]
+struct LinkFingerprint {
+    /// (interface, operstate, carrier) for Ethernet and Wi-Fi interfaces only, so virtual
+    /// interfaces such as Docker's veth pairs coming and going do not trigger probes.
+    links: Vec<(String, String, String)>,
+    routes: String,
+    source_ip: Option<String>,
+}
+
+impl LinkFingerprint {
+    fn read() -> Self {
+        let mut links = Vec::new();
+        if let Ok(entries) = std::fs::read_dir("/sys/class/net") {
+            for entry in entries.flatten() {
+                let name = entry.file_name().to_string_lossy().into_owned();
+                if classify(&name) == LinkKind::Other {
+                    continue;
+                }
+                let read = |file: &str| {
+                    std::fs::read_to_string(entry.path().join(file))
+                        .map(|text| text.trim().to_owned())
+                        .unwrap_or_default()
+                };
+                // `carrier` cannot be read while the interface is down; that is just "".
+                let operstate = read("operstate");
+                let carrier = read("carrier");
+                links.push((name, operstate, carrier));
+            }
+        }
+        links.sort();
+
+        let routes = std::fs::read_to_string("/proc/net/route").unwrap_or_default();
+        Self {
+            links,
+            routes: route_signature(&routes),
+            source_ip: udp_local_ip(),
+        }
+    }
+}
+
+/// Reduce `/proc/net/route` to the columns that describe the topology. The `RefCnt` and `Use`
+/// counters are dropped because they can move on their own and would look like a change.
+fn route_signature(text: &str) -> String {
+    text.lines()
+        .skip(1)
+        .filter_map(|line| {
+            let fields: Vec<&str> = line.split_whitespace().collect();
+            // Iface Destination Gateway Flags RefCnt Use Metric Mask ...
+            (fields.len() >= 8)
+                .then(|| [fields[0], fields[1], fields[2], fields[3], fields[6], fields[7]].join(" "))
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+// ---------------------------------------------------------------------------
+// Probe (layer 2)
+// ---------------------------------------------------------------------------
+
+/// One full look at the network. The public IP is filled in separately by the monitor loop.
 fn probe() -> Snapshot {
     let interfaces = read_interfaces();
     let local_ip = primary_local_ip(&interfaces);
     let gateway_ip = gateway_ip();
     let provider_gateway_ip = provider_gateway_ip();
     let desktop_up = local_ip.is_some();
-    let router_up = gateway_ip.as_deref().is_some_and(router_reachable);
-    let provider_gateway_up = provider_gateway_ip
-        .as_deref()
-        .is_some_and(|ip| ping(ip) || [80u16, 443, 53].into_iter().any(|port| tcp_open(ip, port, ROUTER_PORT_TIMEOUT)));
-    // Internet check is independent - always test it
-    let internet_up = internet_reachable();
-    // Skip DNS and HTTP entirely while offline
-    let public_ip = if internet_up { fetch_public_ip() } else { None };
+    // Ask about the internet first: if it answers, the router in between is working by
+    // definition, so while everything is healthy the gateway is never probed at all.
+    let internet_up = desktop_up && internet_reachable();
+    let router_up = internet_up || gateway_ip.as_deref().is_some_and(router_reachable);
+    let provider_gateway_up = (router_up || internet_up) && provider_gateway_ip.as_deref().is_some_and(|ip| ping(ip) || [80u16, 443, 53].into_iter().any(|port| tcp_open(ip, port, ROUTER_PORT_TIMEOUT)));
 
     Snapshot {
         local_ip,
         gateway_ip,
         provider_gateway_ip,
-        public_ip,
+        public_ip: None,
         desktop_up,
         router_up,
         provider_gateway_up,
@@ -215,15 +407,12 @@ fn parse_addresses(text: &str) -> Vec<(String, String)> {
     parsed
 }
 
+/// Classify by interface name prefix. Prefixes only: a substring match would mistake Docker's
+/// `veth...` pairs for Ethernet.
 pub fn classify(name: &str) -> LinkKind {
-    if name.starts_with("wl") || name.contains("wlan") || name.contains("wifi") {
+    if name.starts_with("wl") {
         LinkKind::Wifi
-    } else if name.starts_with("en")
-        || name.starts_with("eth")
-        || name.contains("enp")
-        || name.contains("eno")
-        || name.contains("eth")
-    {
+    } else if name.starts_with("en") || name.starts_with("eth") {
         LinkKind::Ethernet
     } else {
         LinkKind::Other
@@ -325,18 +514,22 @@ pub fn parse_proc_net_route(text: &str) -> Option<String> {
 }
 
 fn router_reachable(gateway: &str) -> bool {
-    ping(gateway)
-        || [80u16, 443, 53]
-            .into_iter()
-            .any(|port| tcp_open(gateway, port, ROUTER_PORT_TIMEOUT))
+    // A refused connection (RST) is an answer too: the router itself sent it. Only fall back
+    // to spawning `ping` when every port stays silent.
+    any_tcp_responds(
+        &[(gateway, 80), (gateway, 443), (gateway, 53)],
+        ROUTER_PORT_TIMEOUT,
+        true,
+    ) || ping(gateway)
 }
 
 fn internet_reachable() -> bool {
     // TCP first: many networks drop ICMP. IP literals avoid DNS, which can hang offline.
-    ["1.1.1.1", "8.8.8.8"]
-        .into_iter()
-        .any(|host| tcp_open(host, 443, TCP_PROBE_TIMEOUT))
-        || ping("8.8.8.8")
+    any_tcp_responds(
+        &[("1.1.1.1", 443), ("8.8.8.8", 443)],
+        TCP_PROBE_TIMEOUT,
+        false,
+    ) || ping("8.8.8.8")
 }
 
 fn ping(host: &str) -> bool {
@@ -348,6 +541,34 @@ fn ping(host: &str) -> bool {
         .status()
         .map(|status| status.success())
         .unwrap_or(false)
+}
+
+/// Try several TCP targets at once and return as soon as one responds. Running them in
+/// parallel keeps the offline worst case at a single timeout instead of the sum of all of them.
+fn any_tcp_responds(targets: &[(&str, u16)], timeout: Duration, refused_counts: bool) -> bool {
+    let (sender, receiver) = std::sync::mpsc::channel();
+    for &(host, port) in targets {
+        let sender = sender.clone();
+        let host = host.to_owned();
+        std::thread::spawn(move || {
+            // The receiver may already be gone if another target answered first.
+            let _ = sender.send(tcp_responds(&host, port, timeout, refused_counts));
+        });
+    }
+    drop(sender);
+    receiver.iter().any(|responded| responded)
+}
+
+fn tcp_responds(host: &str, port: u16, timeout: Duration, refused_counts: bool) -> bool {
+    let Ok(addresses) = (host, port).to_socket_addrs() else {
+        return false;
+    };
+    addresses
+        .into_iter()
+        .any(|address| match TcpStream::connect_timeout(&address, timeout) {
+            Ok(_) => true,
+            Err(error) => refused_counts && error.kind() == std::io::ErrorKind::ConnectionRefused,
+        })
 }
 
 fn tcp_open(host: &str, port: u16, timeout: Duration) -> bool {
@@ -475,6 +696,13 @@ mod tests {
     }
 
     #[test]
+    fn virtual_interfaces_are_not_ethernet() {
+        assert_eq!(classify("veth3f2a1b"), LinkKind::Other);
+        assert_eq!(classify("docker0"), LinkKind::Other);
+        assert_eq!(classify("virbr0"), LinkKind::Other);
+    }
+
+    #[test]
     fn parses_link_and_address_output() {
         let links = "1: lo: <LOOPBACK,UP,LOWER_UP> mtu 65536 qdisc noqueue state UNKNOWN\n\
                      2: enp3s0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc fq_codel state UP\n\
@@ -527,5 +755,39 @@ mod tests {
             Some("203.0.113.5")
         );
         assert_eq!(extract_ip("no address here"), None);
+    }
+
+    #[test]
+    fn route_signature_ignores_counters_but_sees_topology() {
+        let header = "Iface\tDestination\tGateway \tFlags\tRefCnt\tUse\tMetric\tMask\t\tMTU\tWindow\tIRTT\n";
+        let quiet = format!("{header}wlp2s0\t00000000\t0101A8C0\t0003\t0\t0\t600\t00000000\t0\t0\t0\n");
+        let busy = format!("{header}wlp2s0\t00000000\t0101A8C0\t0003\t7\t42\t600\t00000000\t0\t0\t0\n");
+        let other_gateway =
+            format!("{header}wlp2s0\t00000000\t0100000A\t0003\t0\t0\t600\t00000000\t0\t0\t0\n");
+        assert_eq!(route_signature(&quiet), route_signature(&busy));
+        assert_ne!(route_signature(&quiet), route_signature(&other_gateway));
+    }
+
+    #[test]
+    fn debounce_needs_two_consecutive_failures() {
+        let mut fails = 0;
+        // First failure while up: hold the old state.
+        assert!(debounce(true, false, &mut fails));
+        // Second consecutive failure: now report down.
+        assert!(!debounce(true, false, &mut fails));
+        // Recovery resets the counter.
+        assert!(debounce(false, true, &mut fails));
+        assert_eq!(fails, 0);
+        // A state that was already down stays down immediately.
+        assert!(!debounce(false, false, &mut fails));
+    }
+
+    #[test]
+    fn offline_probes_back_off_to_a_cap() {
+        assert_eq!(offline_delay(0), Duration::from_secs(1));
+        assert_eq!(offline_delay(1), Duration::from_secs(2));
+        assert_eq!(offline_delay(2), Duration::from_secs(4));
+        assert_eq!(offline_delay(3), Duration::from_secs(5));
+        assert_eq!(offline_delay(50), Duration::from_secs(5));
     }
 }
