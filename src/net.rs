@@ -273,6 +273,12 @@ fn provider_gateway_ip() -> Option<String> {
         if parts.len() >= 2 {
             let ip = parts[1];
             if ip != "*" && !ip.starts_with('?') && ip.parse::<IpAddr>().is_ok() {
+                // Avoid returning the same IP as the local gateway
+                if let Some(local_gw) = gateway_ip()
+                    && ip == local_gw
+                {
+                    return None;
+                }
                 return Some(ip.to_owned());
             }
         }

@@ -166,8 +166,9 @@ fn cards(ui: &mut Ui, snapshot: Option<&Snapshot>, palette: &Palette) {
     let available = ui.available_width();
     let spacing = 12.0;
     let arrow_width = 34.0;
-    let card_width = ((available - 3.0 * arrow_width - 5.0 * spacing) / 4.0).clamp(170.0, 300.0);
-    let group_width = 4.0 * card_width + 3.0 * arrow_width + 5.0 * spacing;
+    // 4 cards + 3 arrows = 7 items, 6 gaps between them
+    let card_width = ((available - 3.0 * arrow_width - 6.0 * spacing) / 4.0).clamp(170.0, 300.0);
+    let group_width = 4.0 * card_width + 3.0 * arrow_width + 6.0 * spacing;
     let left_pad = ((available - group_width) / 2.0).max(0.0);
     let height = 200.0;
     let checking = snapshot.is_none();
@@ -232,6 +233,7 @@ fn cards(ui: &mut Ui, snapshot: Option<&Snapshot>, palette: &Palette) {
                 palette,
             );
         }
+        ui.add_space(left_pad);
     });
 }
 
