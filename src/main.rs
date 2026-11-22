@@ -331,60 +331,72 @@ fn arrow(ui: &mut Ui, size: Vec2, palette: &Palette) {
 }
 
 fn details(ui: &mut Ui, snapshot: Option<&net::Snapshot>, palette: &Palette) {
+    // Use same horizontal padding as cards section
+    let available = ui.available_width();
+    let spacing = 12.0;
+    let arrow_width = 34.0;
+    let card_width = ((available - 3.0 * arrow_width - 6.0 * spacing) / 4.0).clamp(170.0, 300.0);
+    let group_width = 4.0 * card_width + 3.0 * arrow_width + 6.0 * spacing;
+    let left_pad = ((available - group_width) / 2.0).max(0.0);
+
     let frame = Frame::new()
         .fill(palette.card)
         .stroke(Stroke::new(1.0, palette.border))
         .corner_radius(CornerRadius::same(12))
         .inner_margin(Margin::symmetric(16, 12));
 
-    Section::new(frame)
-        .heading(
-            RichText::new("Details")
-                .size(14.0)
-                .strong()
-                .color(palette.text),
-        )
-        .show(ui, |ui| {
-            ui.set_min_width(ui.available_width());
-            let Some(snapshot) = snapshot else {
+    ui.horizontal(|ui| {
+        ui.add_space(left_pad);
+        ui.set_max_width(group_width);
+        Section::new(frame)
+            .heading(
+                RichText::new("Details")
+                    .size(14.0)
+                    .strong()
+                    .color(palette.text),
+            )
+            .show(ui, |ui| {
+                let Some(snapshot) = snapshot else {
+                    ui.horizontal(|ui| {
+                        ui.add(egui::Spinner::new().size(14.0).color(palette.muted));
+                        ui.label(
+                            RichText::new("Checking network status...")
+                                .size(14.0)
+                                .color(palette.muted),
+                        );
+                    });
+                    return;
+                };
+
+                let (tone, color, message) = summary(snapshot, palette);
                 ui.horizontal(|ui| {
-                    ui.add(egui::Spinner::new().size(14.0).color(palette.muted));
+                    let (icon_rect, _) = ui.allocate_exact_size(vec2(18.0, 18.0), Sense::hover());
+                    icons::paint_tone(ui.painter(), icon_rect, tone, color);
+                    ui.label(RichText::new(message).size(14.5).strong().color(color));
+                });
+                ui.add_space(4.0);
+                ui.separator();
+                ui.add_space(3.0);
+
+                let links: Vec<&net::Interface> = snapshot
+                    .interfaces
+                    .iter()
+                    .filter(|interface| interface.kind != net::LinkKind::Other)
+                    .collect();
+                if links.is_empty() {
                     ui.label(
-                        RichText::new("Checking network status...")
-                            .size(14.0)
+                        RichText::new("No Ethernet or Wi-Fi interfaces were found.")
+                            .size(13.0)
                             .color(palette.muted),
                     );
-                });
-                return;
-            };
-
-            let (tone, color, message) = summary(snapshot, palette);
-            ui.horizontal(|ui| {
-                let (icon_rect, _) = ui.allocate_exact_size(vec2(18.0, 18.0), Sense::hover());
-                icons::paint_tone(ui.painter(), icon_rect, tone, color);
-                ui.label(RichText::new(message).size(14.5).strong().color(color));
-            });
-            ui.add_space(4.0);
-            ui.separator();
-            ui.add_space(3.0);
-
-            let links: Vec<&net::Interface> = snapshot
-                .interfaces
-                .iter()
-                .filter(|interface| interface.kind != net::LinkKind::Other)
-                .collect();
-            if links.is_empty() {
-                ui.label(
-                    RichText::new("No Ethernet or Wi-Fi interfaces were found.")
-                        .size(13.0)
-                        .color(palette.muted),
-                );
-            } else {
-                for interface in links {
-                    interface_row(ui, interface, palette);
+                } else {
+                    for interface in links {
+                        interface_row(ui, interface, palette);
+                    }
                 }
-            }
-        });
+            });
+        ui.add_space(left_pad);
+    });
 }
 
 fn interface_row(ui: &mut Ui, interface: &net::Interface, palette: &Palette) {
@@ -408,14 +420,13 @@ fn interface_row(ui: &mut Ui, interface: &net::Interface, palette: &Palette) {
                 .size(13.5)
                 .color(palette.text),
         );
-        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            ui.label(
-                RichText::new(interface.state_text())
-                    .size(13.5)
-                    .strong()
-                    .color(color),
-            );
-        });
+        // Status aligned left (after the name), not pushed to far right
+        ui.label(
+            RichText::new(interface.state_text())
+                .size(13.5)
+                .strong()
+                .color(color),
+        );
     });
 }
 
