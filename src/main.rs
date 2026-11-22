@@ -346,8 +346,9 @@ fn details(ui: &mut Ui, snapshot: Option<&net::Snapshot>, palette: &Palette) {
         .inner_margin(Margin::symmetric(16, 12));
 
     ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 0.0;
         ui.add_space(left_pad);
-        ui.set_max_width(group_width);
+        // No set_max_width - let Section fill naturally like cards do
         Section::new(frame)
             .heading(
                 RichText::new("Details")
@@ -356,6 +357,7 @@ fn details(ui: &mut Ui, snapshot: Option<&net::Snapshot>, palette: &Palette) {
                     .color(palette.text),
             )
             .show(ui, |ui| {
+                ui.set_min_width(group_width); // Ensure at least card-group width
                 let Some(snapshot) = snapshot else {
                     ui.horizontal(|ui| {
                         ui.add(egui::Spinner::new().size(14.0).color(palette.muted));
