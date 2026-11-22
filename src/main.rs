@@ -169,7 +169,6 @@ fn cards(ui: &mut Ui, snapshot: Option<&Snapshot>, palette: &Palette) {
     // 4 cards + 3 arrows = 7 items, 6 gaps between them
     let card_width = ((available - 3.0 * arrow_width - 6.0 * spacing) / 4.0).clamp(170.0, 300.0);
     let group_width = 4.0 * card_width + 3.0 * arrow_width + 6.0 * spacing;
-    let left_pad = ((available - group_width) / 2.0).max(0.0);
     let height = 200.0;
     let checking = snapshot.is_none();
 
@@ -186,6 +185,14 @@ fn cards(ui: &mut Ui, snapshot: Option<&Snapshot>, palette: &Palette) {
         Some(ip) => format!("IP: {ip}"),
         None if checking => "IP: checking...".to_owned(),
         None => "IP: no address".to_owned(),
+    };
+
+    // Responsive padding: use calculated left_pad when there's room, otherwise MIN_PADDING
+    const MIN_PADDING: f32 = 12.0;
+    let left_pad = if available > group_width + 2.0 * MIN_PADDING {
+        ((available - group_width) / 2.0).max(MIN_PADDING)
+    } else {
+        MIN_PADDING
     };
 
     ui.horizontal(|ui| {
@@ -331,13 +338,22 @@ fn arrow(ui: &mut Ui, size: Vec2, palette: &Palette) {
 }
 
 fn details(ui: &mut Ui, snapshot: Option<&net::Snapshot>, palette: &Palette) {
-    // Use same horizontal padding as cards section
+    // Use same horizontal padding logic as cards section
     let available = ui.available_width();
     let spacing = 12.0;
     let arrow_width = 34.0;
     let card_width = ((available - 3.0 * arrow_width - 6.0 * spacing) / 4.0).clamp(170.0, 300.0);
     let group_width = 4.0 * card_width + 3.0 * arrow_width + 6.0 * spacing;
-    let left_pad = ((available - group_width) / 2.0).max(0.0);
+    
+    // Responsive padding: use calculated left_pad when there's room, otherwise MIN_PADDING
+    const MIN_PADDING: f32 = 12.0;
+    let left_pad = if available > group_width + 2.0 * MIN_PADDING {
+        ((available - group_width) / 2.0).max(MIN_PADDING)
+    } else {
+        MIN_PADDING
+    };
+    // Content width is available minus both paddings (clamped to not exceed group_width)
+    let content_width = (available - 2.0 * left_pad).min(group_width);
 
     let frame = Frame::new()
         .fill(palette.card)
@@ -350,10 +366,9 @@ fn details(ui: &mut Ui, snapshot: Option<&net::Snapshot>, palette: &Palette) {
         ui.spacing_mut().item_spacing.x = 0.0;
         ui.add_space(left_pad);
 
-        // Use a Frame with fixed width to match card group exactly
         Frame::new().inner_margin(0.0).show(ui, |ui| {
-            ui.set_min_width(group_width);
-            ui.set_max_width(group_width);
+            ui.set_min_width(content_width);
+            ui.set_max_width(content_width);
             Section::new(frame)
                 .heading(
                     RichText::new("Details")
